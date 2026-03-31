@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Célula Conectada - Premium v5.0</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0b0b0b">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { --bg: #0b0b0b; --gold: #c5a059; --card: #161616; --text: #f0f0f0; --input: #252525; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 15px; margin: 0; }
+        .container { max-width: 600px; margin: auto; background: var(--card); border: 1px solid var(--gold); border-radius: 20px; padding: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); position: relative; }
+        h1 { color: var(--gold); text-align: center; font-size: 1.5rem; text-transform: uppercase; margin-bottom: 5px; }
+        textarea { width: 100%; padding: 15px; background: var(--input); color: white; border: 1px solid #444; border-radius: 12px; margin-bottom: 15px; font-size: 16px; box-sizing: border-box; resize: none; outline: none; }
+        textarea:focus { border-color: var(--gold); }
+        .btn-gerar { width: 100%; padding: 20px; background: var(--gold); color: #000; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 16px; display: flex; justify-content: center; align-items: center; gap: 10px; transition: 0.3s; }
+        .btn-gerar:active { transform: scale(0.98); }
+        .btn-gerar:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #roteiro { margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.02); border-radius: 12px; border-left: 4px solid var(--gold); line-height: 1.6; font-size: 16px; white-space: pre-wrap; color: #ddd; }
+        
+        /* Configurações */
+        .settings-btn { position: absolute; top: 20px; right: 20px; color: var(--gold); cursor: pointer; font-size: 20px; z-index: 10; }
+        #config-panel { display: none; background: #222; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px dashed var(--gold); animation: fadeIn 0.3s; }
+        
+        /* Histórico */
+        .history-section { margin-top: 30px; max-width: 600px; margin-left: auto; margin-right: auto; border-top: 1px solid #333; padding-top: 20px; }
+        .history-item { background: #1a1a1a; padding: 15px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #333; cursor: pointer; transition: 0.2s; }
+        .history-item:hover { border-color: var(--gold); }
+        .badge { background: var(--gold); color: black; padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body onload="inicializarApp()">
+
+<div class="container">
+    <i class="fa-solid fa-cog settings-btn" onclick="toggleConfig()"></i>
+    <h1><i class="fa-solid fa-leaf"></i> Célula Pro</h1>
+    <p style="text-align: center; font-size: 12px; color: #888; margin-bottom: 20px;">Líder: Cicero Daniel</p>
+
+    <div id="config-panel">
+        <label style="font-size: 12px; color: var(--gold); font-weight: bold;">CHAVE API GOOGLE GEMINI:</label>
+        <input type="password" id="api-key-input" style="width: 100%; background: #000; color: #00ff00; border: 1px solid #444; padding: 10px; border-radius: 8px; margin-top: 5px; box-sizing: border-box;" placeholder="Cole sua chave do AI Studio aqui...">
+        <button onclick="saveKey()" style="margin-top: 10px; width: 100%; background: var(--gold); border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer;">SALVAR NO DISPOSITIVO</button>
+        <p style="font-size: 10px; color: #666; margin-top: 5px; text-align: center;">A chave fica salva apenas no seu navegador.</p>
+    </div>
+    
+    <textarea id="tema" placeholder="Qual o tema da palavra ou versículo base de hoje?" rows="3"></textarea>
+    
+    <button id="btn-main" class="btn-gerar" onclick="gerarEncontro()">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> GERAR ROTEIRO PREMIUM
+    </button>
+
+    <div id="roteiro">O roteiro gerado pela IA aparecerá aqui...</div>
+</div>
+
+<div class="history-section">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <span style="color: var(--gold); font-weight: bold; font-size: 14px;"><i class="fa-solid fa-clock-rotate-left"></i> SALVOS RECENTEMENTE</span>
+        <button onclick="limparHistorico()" style="background: none; border: none; color: #ff6b6b; cursor: pointer; font-size: 12px;">Limpar Tudo</button>
+    </div>
+    <div id="lista-historico"></div>
+</div>
+
+<script>
+let MINHA_CHAVE = localStorage.getItem('celulapro_key') || "";
+
+// Registrar Service Worker para PWA
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(err => console.log("Erro SW:", err));
+}
+
+function toggleConfig() {
+    const panel = document.getElementById('config-panel');
+    panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+}
+
+function saveKey() {
+    const k = document.getElementById('api-key-input').value;
+    if(k.trim() !== "") {
+        localStorage.setItem('celulapro_key', k);
+        MINHA_CHAVE = k;
+        alert("Configuração salva!");
+        toggleConfig();
+        location.reload();
+    }
+}
+
+function inicializarApp() {
+    atualizarInterfaceHistorico();
+    if(!MINHA_CHAVE) {
+        document.getElementById('roteiro').innerHTML = "<div style='color: orange; text-align: center;'>⚠️ Olá, Cícero! Clique na engrenagem no topo para configurar sua chave API do Gemini e começar.</div>";
+    }
+}
+
+async function gerarEncontro() {
+    const tema = document.getElementById('tema').value;
+    const display = document.getElementById('roteiro');
+    const btn = document.getElementById('btn-main');
+
+    if(!MINHA_CHAVE) {
+        alert("Por favor, configure sua chave API na engrenagem primeiro!");
+        toggleConfig();
+        return;
+    }
+    if(!tema) return alert("Digite um tema ou versículo!");
+
+    btn.disabled = true;
+    display.innerHTML = "✨ Criando roteiro personalizado... aguarde.";
+
+    const instrucao = `Você é um pastor experiente auxiliando o líder de célula Cicero Daniel. 
+    Crie um roteiro de encontro completo sobre: "${tema}". 
+    Estrutura obrigatória:
+    1. Quebra-gelo: Uma dinâmica simples sobre o tema.
+    2. Louvor: Sugira 2 músicas conhecidas que se encaixem.
+    3. Palavra: Uma reflexão bíblica com 3 tópicos curtos e impactantes.
+    4. Aplicação: Como viver isso na prática?
+    5. Oração: Motivo específico baseado no tema.
+    Use emojis e formate para leitura fácil no celular.`;
+
+    try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${MINHA_CHAVE}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: instrucao }] }] })
+        });
+
+        const data = await response.json();
+        
+        if (data.candidates && data.candidates[0].content.parts[0].text) {
+            const texto = data.candidates[0].content.parts[0].text;
+            display.innerHTML = texto;
+            salvarNoHistorico(tema, texto);
+        } else {
+            throw new Error("Resposta inválida");
+        }
+    } catch (e) {
+        display.innerHTML = "❌ Ocorreu um erro na conexão. Verifique sua chave API ou internet.";
+        console.error(e);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function salvarNoHistorico(t, c) {
+    const h = JSON.parse(localStorage.getItem('hist_celula_v5') || '[]');
+    const data = new Date().toLocaleDateString('pt-BR');
+    h.push({ titulo: t, conteudo: c, data: data });
+    localStorage.setItem('hist_celula_v5', JSON.stringify(h));
+    atualizarInterfaceHistorico();
+}
+
+function atualizarInterfaceHistorico() {
+    const div = document.getElementById('lista-historico');
+    const h = JSON.parse(localStorage.getItem('hist_celula_v5') || '[]');
+    div.innerHTML = h.map((item, idx) => `
+        <div class="history-item" onclick="verHistorico(${idx})">
+            <span class="badge">${item.data}</span><br>
+            <strong style="color:var(--gold);">${item.titulo}</strong>
+        </div>
+    `).reverse().join('');
+}
+
+function verHistorico(i) {
+    const h = JSON.parse(localStorage.getItem('hist_celula_v5') || '[]');
+    document.getElementById('roteiro').innerHTML = h[i].conteudo;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function limparHistorico() {
+    if(confirm("Deseja apagar todos os roteiros salvos?")) {
+        localStorage.removeItem('hist_celula_v5');
+        atualizarInterfaceHistorico();
+    }
+}
+</script>
+</body>
+</html>
