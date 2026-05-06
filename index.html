@@ -21,7 +21,6 @@
         .btn-gerar:active { transform: scale(0.98); }
         .btn-gerar:disabled { background: #444; color: #888; }
 
-        /* Roteiro Otimizado para Leitura (Fonte 19px como no seu modelo) */
         #roteiro { margin-top: 25px; padding: 20px; background: rgba(255,255,255,0.02); border-radius: 12px; border-left: 5px solid var(--gold); line-height: 1.8; font-size: 19px; color: #ddd; white-space: pre-wrap; }
         #roteiro b { color: var(--gold); font-weight: 700; }
 
@@ -32,6 +31,9 @@
         .history-item { background: #1a1a1a; padding: 18px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #333; cursor: pointer; transition: 0.2s; font-size: 16px; }
         .history-item:hover { border-color: var(--gold); }
         .badge { background: var(--gold); color: black; padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: bold; }
+
+        .error-box { background: rgba(255,80,80,0.08); border: 1px solid #ff5050; border-radius: 10px; padding: 15px; margin-top: 10px; font-size: 14px; color: #ff9999; }
+        .error-box b { color: #ff5050; }
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
@@ -69,6 +71,13 @@
 <script>
 let MINHA_CHAVE = localStorage.getItem('celulapro_key') || "";
 
+// Modelos em ordem de tentativa (atualizados para 2025)
+const MODELOS = [
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-2.5-flash-preview-04-17'
+];
+
 function toggleConfig() {
     const panel = document.getElementById('config-panel');
     panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
@@ -92,18 +101,55 @@ function inicializarApp() {
     }
 }
 
+async function chamarGemini(instrucao, modeloIndex = 0) {
+    if (modeloIndex >= MODELOS.length) {
+        throw new Error("Todos os modelos falharam. Verifique sua cota em aistudio.google.com/apikey");
+    }
+
+    const modelo = MODELOS[modeloIndex];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${MINHA_CHAVE}`;
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: instrucao }] }] })
+    });
+
+    // Se quota excedida (429) ou indisponível (503), tenta próximo modelo
+    if (response.status === 429 || response.status === 503) {
+        const errData = await response.json().catch(() => ({}));
+        const msg = errData?.error?.message || `Status ${response.status}`;
+        console.warn(`Modelo ${modelo} falhou (${response.status}): ${msg}. Tentando próximo...`);
+        return chamarGemini(instrucao, modeloIndex + 1);
+    }
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const msg = errData?.error?.message || `Erro HTTP ${response.status}`;
+        throw new Error(msg);
+    }
+
+    const data = await response.json();
+
+    // Verifica se a resposta tem conteúdo válido
+    if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+        throw new Error("A API não retornou conteúdo. Tente novamente.");
+    }
+
+    return { texto: data.candidates[0].content.parts[0].text, modelo };
+}
+
 async function gerarEncontro() {
     const tema = document.getElementById('tema').value;
     const display = document.getElementById('roteiro');
     const btn = document.getElementById('btn-main');
 
     if(!MINHA_CHAVE) { alert("Configure sua chave API primeiro!"); toggleConfig(); return; }
-    if(!tema) return alert("Insira um tema!");
+    if(!tema.trim()) return alert("Insira um tema!");
 
     btn.disabled = true;
     display.innerHTML = "Criando roteiro objetivo... <i class='fa-solid fa-circle-notch fa-spin'></i>";
 
-    // Prompt fundindo sua personalidade com a inteligência do Gemini
     const instrucao = `Atue como um mentor de líderes de célula cristã experiente, simulando o estilo do Cicero Daniel. 
     Crie um roteiro de célula de 60 minutos sobre: "${tema}".
     Seja claro, direto ao ponto e use uma linguagem simples para falar e ouvir.
@@ -116,30 +162,32 @@ async function gerarEncontro() {
     Use emojis e evite textos longos ou cansativos.`;
 
     try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${MINHA_CHAVE}`;
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: instrucao }] }] })
-        });
+        const { texto, modelo } = await chamarGemini(instrucao);
 
-        const data = await response.json();
-        const textoOriginal = data.candidates[0].content.parts[0].text;
-        
-        // Formatação simples para negritos e quebras de linha
-        const textoFormatado = textoOriginal.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+        const textoFormatado = texto.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
 
         display.innerHTML = `
             <div style="text-align:center; margin-bottom:20px;">
                 <h2 style="margin:0; color:var(--gold); font-size: 24px;">${tema.toUpperCase()}</h2>
                 <p style="margin:5px 0; font-size: 14px;">Líder: Cicero Daniel</p>
+                <p style="margin:2px 0; font-size: 11px; color:#666;">Modelo: ${modelo}</p>
             </div>
             <hr style="border-top:1px solid #333; margin-bottom:20px;">
             ${textoFormatado}`;
 
         salvarNoHistorico(tema.toUpperCase(), display.innerHTML);
+
     } catch (e) {
-        display.innerHTML = "❌ Erro na conexão. Verifique sua chave ou internet.";
+        let mensagem = e.message || "Erro desconhecido.";
+        let dica = "";
+
+        if (mensagem.includes("quota") || mensagem.includes("RESOURCE_EXHAUSTED") || mensagem.includes("429")) {
+            dica = `<br><br>💡 <b>Solução:</b> Sua cota gratuita foi esgotada hoje. Aguarde até meia-noite (horário de Brasília) ou acesse <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--gold)">aistudio.google.com</a> para verificar seu plano.`;
+        } else if (mensagem.includes("API_KEY_INVALID") || mensagem.includes("400")) {
+            dica = `<br><br>💡 <b>Solução:</b> Chave API inválida. Clique na ⚙️ engrenagem e cole uma chave válida do <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--gold)">Google AI Studio</a>.`;
+        }
+
+        display.innerHTML = `<div class="error-box"><b>❌ Erro:</b> ${mensagem}${dica}</div>`;
     } finally {
         btn.disabled = false;
     }
