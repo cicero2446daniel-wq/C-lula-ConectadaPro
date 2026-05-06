@@ -73,9 +73,9 @@
 let MINHA_CHAVE = localStorage.getItem('celulapro_key') || "";
 
 const MODELOS = [
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-2.5-flash-preview-04-17'
+    'gemini-2.5-flash',       // principal — mais capaz, grátis
+    'gemini-2.0-flash',       // fallback rápido
+    'gemini-2.0-flash-lite'   // fallback leve se os dois acima esgotarem
 ];
 
 function toggleConfig() {
