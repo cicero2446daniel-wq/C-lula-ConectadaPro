@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Célula Pro v5.5 - Premium</title>
+    <title>Célula Pro v5.6 - Premium</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0b0b0b">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -32,8 +32,9 @@
         .history-item:hover { border-color: var(--gold); }
         .badge { background: var(--gold); color: black; padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: bold; }
 
-        .error-box { background: rgba(255,80,80,0.08); border: 1px solid #ff5050; border-radius: 10px; padding: 15px; margin-top: 10px; font-size: 14px; color: #ff9999; }
+        .error-box { background: rgba(255,80,80,0.08); border: 1px solid #ff5050; border-radius: 10px; padding: 15px; margin-top: 10px; font-size: 15px; color: #ff9999; line-height: 1.7; }
         .error-box b { color: #ff5050; }
+        .error-box a { color: var(--gold); }
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
@@ -71,7 +72,6 @@
 <script>
 let MINHA_CHAVE = localStorage.getItem('celulapro_key') || "";
 
-// Modelos em ordem de tentativa (atualizados para 2025)
 const MODELOS = [
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
@@ -84,8 +84,8 @@ function toggleConfig() {
 }
 
 function saveKey() {
-    const k = document.getElementById('api-key-input').value;
-    if(k.trim() !== "") {
+    const k = document.getElementById('api-key-input').value.trim();
+    if(k !== "") {
         localStorage.setItem('celulapro_key', k);
         MINHA_CHAVE = k;
         alert("Configuração salva!");
@@ -103,35 +103,46 @@ function inicializarApp() {
 
 async function chamarGemini(instrucao, modeloIndex = 0) {
     if (modeloIndex >= MODELOS.length) {
-        throw new Error("Todos os modelos falharam. Verifique sua cota em aistudio.google.com/apikey");
+        throw new Error("COTA_ESGOTADA");
     }
 
     const modelo = MODELOS[modeloIndex];
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${MINHA_CHAVE}`;
 
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: instrucao }] }] })
-    });
+    let response;
+    try {
+        response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: instrucao }] }] })
+        });
+    } catch (networkErr) {
+        // Erro de rede real (sem internet, CORS bloqueado, etc.)
+        throw new Error("REDE");
+    }
 
-    // Se quota excedida (429) ou indisponível (503), tenta próximo modelo
+    // Cota ou serviço indisponível → tenta próximo modelo
     if (response.status === 429 || response.status === 503) {
-        const errData = await response.json().catch(() => ({}));
-        const msg = errData?.error?.message || `Status ${response.status}`;
-        console.warn(`Modelo ${modelo} falhou (${response.status}): ${msg}. Tentando próximo...`);
+        console.warn(`Modelo ${modelo} retornou ${response.status}. Tentando próximo...`);
         return chamarGemini(instrucao, modeloIndex + 1);
+    }
+
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+        throw new Error("CHAVE_INVALIDA");
     }
 
     if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         const msg = errData?.error?.message || `Erro HTTP ${response.status}`;
+        // Verifica se a mensagem indica cota
+        if (msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("resource_exhausted")) {
+            return chamarGemini(instrucao, modeloIndex + 1);
+        }
         throw new Error(msg);
     }
 
     const data = await response.json();
 
-    // Verifica se a resposta tem conteúdo válido
     if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
         throw new Error("A API não retornou conteúdo. Tente novamente.");
     }
@@ -178,16 +189,35 @@ async function gerarEncontro() {
         salvarNoHistorico(tema.toUpperCase(), display.innerHTML);
 
     } catch (e) {
-        let mensagem = e.message || "Erro desconhecido.";
+        let titulo = "❌ Erro";
+        let mensagem = "";
         let dica = "";
 
-        if (mensagem.includes("quota") || mensagem.includes("RESOURCE_EXHAUSTED") || mensagem.includes("429")) {
-            dica = `<br><br>💡 <b>Solução:</b> Sua cota gratuita foi esgotada hoje. Aguarde até meia-noite (horário de Brasília) ou acesse <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--gold)">aistudio.google.com</a> para verificar seu plano.`;
-        } else if (mensagem.includes("API_KEY_INVALID") || mensagem.includes("400")) {
-            dica = `<br><br>💡 <b>Solução:</b> Chave API inválida. Clique na ⚙️ engrenagem e cole uma chave válida do <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--gold)">Google AI Studio</a>.`;
+        if (e.message === "COTA_ESGOTADA") {
+            titulo = "⏳ Cota diária esgotada";
+            mensagem = "Todos os modelos Gemini atingiram o limite gratuito de hoje.";
+            dica = `💡 <b>Soluções:</b><br>
+                • Aguarde até meia-noite (horário de Brasília) — a cota renova automaticamente.<br>
+                • Ou acesse <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a> para verificar / gerar uma nova chave.`;
+        } else if (e.message === "CHAVE_INVALIDA") {
+            titulo = "🔑 Chave API inválida";
+            mensagem = "A chave configurada foi recusada pelo Google.";
+            dica = `💡 <b>Solução:</b> Clique na ⚙️ engrenagem, apague a chave atual e cole uma válida do <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a>.`;
+        } else if (e.message === "REDE") {
+            titulo = "📡 Sem conexão";
+            mensagem = "Não foi possível alcançar os servidores do Google.";
+            dica = `💡 Verifique sua internet e tente novamente.`;
+        } else {
+            mensagem = e.message || "Erro desconhecido.";
+            dica = `💡 Tente novamente em alguns instantes.`;
         }
 
-        display.innerHTML = `<div class="error-box"><b>❌ Erro:</b> ${mensagem}${dica}</div>`;
+        display.innerHTML = `
+            <div class="error-box">
+                <b>${titulo}</b><br><br>
+                ${mensagem}<br><br>
+                ${dica}
+            </div>`;
     } finally {
         btn.disabled = false;
     }
